@@ -13,7 +13,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _selectedThreadId;
   String? _selectedThreadName;
 
-  void _onConversationSelected(String threadId, String name) {
+  void _onConversationSelected(String? threadId, String name) {
     setState(() {
       _selectedThreadId = threadId;
       _selectedThreadName = name;
@@ -73,10 +73,10 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class ChatScreen extends StatelessWidget {
-  final String threadId;
+  final String? threadId;
   final String threadName;
 
-  const ChatScreen({super.key, required this.threadId, required this.threadName});
+  const ChatScreen({super.key, this.threadId, required this.threadName});
 
   @override
   Widget build(BuildContext context) {

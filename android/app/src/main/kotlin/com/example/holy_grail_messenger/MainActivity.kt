@@ -41,7 +41,43 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "checkRcsAccess" -> {
-                    result.success(checkRcsAccess())
+                    checkRcsAccess(result)
+                }
+                "sendSms" -> {
+                    val address = call.argument<String>("address")
+                    val body = call.argument<String>("body")
+                    if (address != null && body != null) {
+                        sendSms(address, body, result)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Address or body missing", null)
+                    }
+                }
+                "deleteConversation" -> {
+                    val threadId = call.argument<String>("threadId")
+                    if (threadId != null) {
+                        deleteConversation(threadId, result)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "threadId is null", null)
+                    }
+                }
+                "markAsRead" -> {
+                    val threadId = call.argument<String>("threadId")
+                    if (threadId != null) {
+                        markAsRead(threadId, result)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "threadId is null", null)
+                    }
+                }
+                "launchApp" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        launchApp(packageName, result)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "packageName is null", null)
+                    }
+                }
+                "debugRcsMethods" -> {
+                    debugRcsMethods(result)
                 }
                 else -> {
                     result.notImplemented()
@@ -50,18 +86,62 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun checkRcsAccess(): Boolean {
+    private fun checkRcsAccess(result: MethodChannel.Result) {
+        val debugInfo = StringBuilder()
         try {
-            // Try to get the ImsManager class
-            val imsManagerClass = Class.forName("android.telephony.ims.ImsManager")
-            Log.d("RCS_CRACK", "Found ImsManager class: $imsManagerClass")
-            
-            // Note: Instantiating it usually requires a context or subscription ID.
-            // This is just a probe to see if the class is visible after bypass.
-            return true
+            // 1. Try Public API (Android R+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    val imsManager = context.getSystemService(Context.TELEPHONY_IMS_SERVICE)
+                    if (imsManager != null) {
+                        result.success("Success: Got ImsManager via getSystemService!")
+                        return
+                    }
+                } catch (e: Exception) {
+                    debugInfo.append("getSystemService failed: ${e.message}\n")
+                }
+            }
+
+            // 2. Try Reflection on android.telephony.ims.ImsManager
+            try {
+                val className = "android.telephony.ims.ImsManager"
+                val imsManagerClass = Class.forName(className)
+                
+                // Try getInstance(Context) - sometimes used
+                try {
+                    val getInstance = imsManagerClass.getDeclaredMethod("getInstance", Context::class.java)
+                    val instance = getInstance.invoke(null, context)
+                    result.success("Success: Got ImsManager via getInstance(Context)!")
+                    return
+                } catch (e: Exception) { debugInfo.append("getInstance(Context) failed\n") }
+
+                // Try getInstance(Context, int)
+                try {
+                    val subId = android.telephony.SubscriptionManager.getDefaultSmsSubscriptionId()
+                    val getInstance = imsManagerClass.getDeclaredMethod("getInstance", Context::class.java, Int::class.javaPrimitiveType)
+                    val instance = getInstance.invoke(null, context, subId)
+                    result.success("Success: Got ImsManager via getInstance(Context, int)!")
+                    return
+                } catch (e: Exception) { debugInfo.append("getInstance(Context, int) failed\n") }
+
+            } catch (e: Exception) {
+                debugInfo.append("Reflection failed: ${e.message}\n")
+            }
+
+            result.success("Failed. Debug Info:\n$debugInfo")
         } catch (e: Exception) {
-            Log.e("RCS_CRACK", "Failed to access ImsManager", e)
-            return false
+            Log.e("RCS_CRACK", "Critical Failure", e)
+            result.error("RCS_ERROR", "Critical Error: ${e.message}", null)
+        }
+    }
+
+    private fun sendSms(address: String, body: String, result: MethodChannel.Result) {
+        try {
+            val smsManager = android.telephony.SmsManager.getDefault()
+            smsManager.sendTextMessage(address, null, body, null, null)
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("SEND_SMS_ERROR", e.message, null)
         }
     }
 
@@ -119,13 +199,15 @@ class MainActivity : FlutterActivity() {
             val bodyIdx = cursor.getColumnIndex(Telephony.Sms.BODY)
             val dateIdx = cursor.getColumnIndex(Telephony.Sms.DATE)
             val typeIdx = cursor.getColumnIndex(Telephony.Sms.TYPE)
+            val statusIdx = cursor.getColumnIndex(Telephony.Sms.STATUS)
 
             while (cursor.moveToNext()) {
                 messages.add(mapOf(
                     "id" to cursor.getString(idIdx),
                     "body" to cursor.getString(bodyIdx),
                     "date" to cursor.getLong(dateIdx),
-                    "isMe" to (cursor.getInt(typeIdx) == Telephony.Sms.MESSAGE_TYPE_SENT)
+                    "isMe" to (cursor.getInt(typeIdx) == Telephony.Sms.MESSAGE_TYPE_SENT),
+                    "status" to cursor.getInt(statusIdx)
                 ))
             }
         }
@@ -149,6 +231,78 @@ class MainActivity : FlutterActivity() {
                 intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, context.packageName)
                 startActivity(intent)
             }
+        }
+    }
+    private fun deleteConversation(threadId: String, result: MethodChannel.Result) {
+        try {
+            val uri = Telephony.Sms.CONTENT_URI
+            val selection = "${Telephony.Sms.THREAD_ID} = ?"
+            val selectionArgs = arrayOf(threadId)
+            contentResolver.delete(uri, selection, selectionArgs)
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("DELETE_ERROR", e.message, null)
+        }
+    }
+
+    private fun markAsRead(threadId: String, result: MethodChannel.Result) {
+        try {
+            val uri = Telephony.Sms.CONTENT_URI
+            val values = android.content.ContentValues()
+            values.put(Telephony.Sms.READ, 1)
+            val selection = "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.READ} = 0"
+            val selectionArgs = arrayOf(threadId)
+            contentResolver.update(uri, values, selection, selectionArgs)
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("MARK_READ_ERROR", e.message, null)
+        }
+    }
+
+    private fun launchApp(packageName: String, result: MethodChannel.Result) {
+        try {
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            if (launchIntent != null) {
+                startActivity(launchIntent)
+                result.success(null)
+            } else {
+                result.error("APP_NOT_FOUND", "App not found", null)
+            }
+        } catch (e: Exception) {
+            result.error("LAUNCH_ERROR", e.message, null)
+        }
+    }
+
+    private fun debugRcsMethods(result: MethodChannel.Result) {
+        val debugInfo = StringBuilder()
+        try {
+            val classesToCheck = listOf(
+                "android.telephony.ims.ImsRcsManager",
+                "android.telephony.ims.RcsMessageStore",
+                "android.telephony.ims.RcsControllerCall",
+                "com.android.internal.telephony.ims.RcsMessageStoreController"
+            )
+
+            for (className in classesToCheck) {
+                try {
+                    debugInfo.append("\n--- Class: $className ---\n")
+                    val clazz = Class.forName(className)
+                    val methods = clazz.declaredMethods
+                    for (method in methods) {
+                        debugInfo.append("Method: ${method.name}(")
+                        val params = method.parameterTypes
+                        for (p in params) {
+                            debugInfo.append("${p.simpleName}, ")
+                        }
+                        debugInfo.append(")\n")
+                    }
+                } catch (e: ClassNotFoundException) {
+                    debugInfo.append("Class not found: $className\n")
+                }
+            }
+            result.success(debugInfo.toString())
+        } catch (e: Exception) {
+            result.error("DEBUG_ERROR", e.message, null)
         }
     }
 }
