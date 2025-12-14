@@ -1,0 +1,129 @@
+# Unified Messaging Architecture Diagram
+
+            +-------------------------+
+            |  Google Messages (RCS)  |
+            |  SMS/MMS + RCS network  |
+            +-----------+-------------+
+                        ^
+                        | Background protocol handling
+                        |
+            +-----------v-------------+
+            |   NotificationListener  |
+            |   & Accessibility       |
+            +-----------+-------------+
+                        |
+                        v
+            +-------------------------+
+            |   Local Message Cache    |
+            |  (threads, read status, |
+            |   typing, reactions)    |
+            +-----------+-------------+
+                        |
+                        v
+            +-------------------------+
+            |  Unified Inbox & UI      |
+            |  - Bubble overlay        |
+            |  - Typing indicators     |
+            |  - Read receipts         |
+            |  - Reactions             |
+            +-----------+-------------+
+          /                |                \
+         v                 v                 v
++----------------+  +----------------+  +----------------+
+|  Facebook      |  |  Open Bubbles  |  |  Other future  |
+|  Messenger     |  |  Overlay API   |  |  messaging     |
+|  Notifications |  |  Notifications |  |  platforms     |
++----------------+  +----------------+  +----------------+
+
+# Unified Messaging App - Specification
+
+Goal:
+Enhance my existing Android messaging app to act as a unified messaging hub.
+Integrate Google Messages (RCS + SMS), Facebook Messenger, and Open Bubbles.
+Simulate RCS features (typing indicators, read receipts, reactions).
+Use overlay/bubble UI and notification interception.
+Native apps handle all actual message sending and network operations in the background.
+
+---
+
+## 1. Notification Interception
+- Single NotificationListenerService for:
+  - Google Messages (com.google.android.apps.messaging)
+  - Messenger (com.facebook.orca)
+  - Open Bubbles triggers
+- Extract sender, message text, thread/conversation ID, timestamps, reactions
+- Suppress native notifications so your app is main source
+- Handle notifications in background (respect Doze/battery optimizations)
+
+---
+
+## 2. Message Mirroring & Caching
+- Maintain a local message cache per platform
+- Merge messages by sender/thread into a unified inbox
+- Support translation, smart replies, and enhancements
+- Keep simulated RCS states:
+  - Typing indicators
+  - Read receipts
+  - Reactions
+
+---
+
+## 3. Typing Indicators & Read Receipts
+- Typing indicators:
+  - Google Messages: infer from notifications or Accessibility events
+  - Messenger: infer from UI changes or notifications
+- Read receipts:
+  - Detect thread opens or message read via notifications/Accessibility
+  - Update local cache/UI to show “read”
+- Simulation only; do not send fake network signals
+
+---
+
+## 4. Sending Messages
+- Google Messages: send via intent or accessibility automation
+- Messenger: send via deep-link intent or accessibility automation
+- Open Bubbles: use native integration
+- UX should feel seamless; user shouldn’t notice handoffs
+
+---
+
+## 5. Unified Inbox & Overlay
+- Merge threads across platforms
+- Custom UI with:
+  - Bubble conversations
+  - Inline reactions
+  - Typing and read indicators
+- Overlay bubbles (Open Bubbles style)
+- Smooth animations, scrolling, visual consistency
+
+---
+
+## 6. Background Operation
+- Services must work when app is in background
+- Respect battery and Doze restrictions
+- Maintain simulated RCS states in real time
+
+---
+
+## 7. Extensibility
+- Hooks for auto-replies, smart reactions, additional messaging platforms
+- Separate overlay/mirroring layer from database and UI for maintainability
+
+---
+
+## Constraints
+- Do not modify Google Messages APK or signature
+- Do not bypass RCS or Messenger protocol security
+- Simulation features must be client-side only
+- All actual network/message operations handled by native apps
+- Permissions: Notification access, Accessibility service, Overlay/system alert window
+
+---
+
+## Deliverables from AI
+- NotificationListenerService + Accessibility service scaffolding
+- Local message cache and thread manager
+- Unified inbox UI integrating Google Messages + Messenger + Open Bubbles
+- Bubble overlay system
+- Hooks for reply automation
+- Comments explaining simulated RCS behavior and platform-specific logic

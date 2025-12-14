@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Unified messaging accessibility service for detecting typing indicators and read receipts</string>
+</resources>

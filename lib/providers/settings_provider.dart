@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/sms_service.dart';
-
 import '../services/contact_service.dart';
+import '../services/haptic_service.dart';
 
 class SettingsProvider with ChangeNotifier {
   final SmsService _smsService = SmsService();
   final ContactService _contactService = ContactService();
+  final HapticService _hapticService = HapticService();
   
   SmsService get smsService => _smsService;
   ContactService get contactService => _contactService;
+  HapticService get hapticService => _hapticService;
 
   ThemeMode _themeMode = ThemeMode.system;
   Color _seedColor = Colors.teal;
@@ -35,6 +37,7 @@ class SettingsProvider with ChangeNotifier {
   // Messaging Settings
   bool _notificationsEnabled = true;
   bool _deliveryReportsEnabled = false;
+  bool _hapticsEnabled = true;
 
   // Custom Actions
   String _callAppPackage = '';
@@ -59,6 +62,7 @@ class SettingsProvider with ChangeNotifier {
   
   bool get notificationsEnabled => _notificationsEnabled;
   bool get deliveryReportsEnabled => _deliveryReportsEnabled;
+  bool get hapticsEnabled => _hapticsEnabled;
 
   String get callAppPackage => _callAppPackage;
   String get videoCallAppPackage => _videoCallAppPackage;
@@ -70,7 +74,7 @@ class SettingsProvider with ChangeNotifier {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final themeIndex = prefs.getInt('themeMode') ?? 0;
-    final colorValue = prefs.getInt('seedColor') ?? Colors.teal.value;
+    final colorValue = prefs.getInt('seedColor') ?? ((Colors.teal.a * 255).round() << 24) | ((Colors.teal.r * 255).round() << 16) | ((Colors.teal.g * 255).round() << 8) | (Colors.teal.b * 255).round();
     _isRcsEnabled = prefs.getBool('isRcsEnabled') ?? true;
     
     // Init contacts
@@ -91,6 +95,8 @@ class SettingsProvider with ChangeNotifier {
     
     _notificationsEnabled = prefs.getBool('notificationsEnabled') ?? true;
     _deliveryReportsEnabled = prefs.getBool('deliveryReportsEnabled') ?? false;
+    _hapticsEnabled = prefs.getBool('hapticsEnabled') ?? true;
+    _hapticService.setEnabled(_hapticsEnabled);
 
     _callAppPackage = prefs.getString('callAppPackage') ?? '';
     _videoCallAppPackage = prefs.getString('videoCallAppPackage') ?? '';
@@ -209,7 +215,7 @@ class SettingsProvider with ChangeNotifier {
     _seedColor = color;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('seedColor', color.value);
+    await prefs.setInt('seedColor', ((color.a * 255).round() << 24) | ((color.r * 255).round() << 16) | ((color.g * 255).round() << 8) | (color.b * 255).round());
   }
 
   Future<void> setRcsEnabled(bool enabled) async {
@@ -231,5 +237,13 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('videoCallAppPackage', packageName);
+  }
+
+  Future<void> setHapticsEnabled(bool enabled) async {
+    _hapticsEnabled = enabled;
+    _hapticService.setEnabled(enabled);
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hapticsEnabled', enabled);
   }
 }

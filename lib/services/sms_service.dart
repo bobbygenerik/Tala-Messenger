@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SmsService {
   static const platform = MethodChannel('com.example.holy_grail_messenger/sms');
@@ -11,7 +13,7 @@ class SmsService {
     try {
       await platform.invokeMethod('requestDefaultSms');
     } on PlatformException catch (e) {
-      print("Failed to request default SMS: '${e.message}'.");
+      debugPrint("Failed to request default SMS: '${e.message}'.");
     }
   }
 
@@ -20,7 +22,7 @@ class SmsService {
       final bool result = await platform.invokeMethod('isDefaultSms');
       return result;
     } on PlatformException catch (e) {
-      print("Failed to check default SMS: '${e.message}'.");
+      debugPrint("Failed to check default SMS: '${e.message}'.");
       return false;
     }
   }
@@ -30,7 +32,7 @@ class SmsService {
       final List<dynamic> result = await platform.invokeMethod('getConversations');
       return result.cast<Map<dynamic, dynamic>>().map((e) => e.cast<String, dynamic>()).toList();
     } on PlatformException catch (e) {
-      print("Failed to get conversations: '${e.message}'.");
+      debugPrint("Failed to get conversations: '${e.message}'.");
       return [];
     }
   }
@@ -40,7 +42,7 @@ class SmsService {
       final List<dynamic> result = await platform.invokeMethod('getMessages', {'threadId': threadId});
       return result.cast<Map<dynamic, dynamic>>().map((e) => e.cast<String, dynamic>()).toList();
     } on PlatformException catch (e) {
-      print("Failed to get messages: '${e.message}'.");
+      debugPrint("Failed to get messages: '${e.message}'.");
       return [];
     }
   }
@@ -50,7 +52,7 @@ class SmsService {
       final result = await platform.invokeMethod('checkRcsAccess');
       return result.toString();
     } on PlatformException catch (e) {
-      print("Failed to check RCS access: '${e.message}'.");
+      debugPrint("Failed to check RCS access: '${e.message}'.");
       return "Error: ${e.message}";
     }
   }
@@ -59,7 +61,7 @@ class SmsService {
     try {
       await platform.invokeMethod('sendSms', {'address': address, 'body': body});
     } on PlatformException catch (e) {
-      print("Failed to send SMS: '${e.message}'.");
+      debugPrint("Failed to send SMS: '${e.message}'.");
     }
   }
 
@@ -67,7 +69,7 @@ class SmsService {
     try {
       await platform.invokeMethod('deleteConversation', {'threadId': threadId});
     } on PlatformException catch (e) {
-      print("Failed to delete conversation: '${e.message}'.");
+      debugPrint("Failed to delete conversation: '${e.message}'.");
     }
   }
 
@@ -75,14 +77,47 @@ class SmsService {
     try {
       await platform.invokeMethod('markAsRead', {'threadId': threadId});
     } on PlatformException catch (e) {
-      print("Failed to mark as read: '${e.message}'.");
+      debugPrint("Failed to mark as read: '${e.message}'.");
     }
   }
   Future<void> launchApp(String packageName) async {
     try {
       await platform.invokeMethod('launchApp', {'packageName': packageName});
     } on PlatformException catch (e) {
-      print("Failed to launch app: '${e.message}'.");
+      debugPrint("Failed to launch app: '${e.message}'.");
+    }
+  }
+
+  Future<void> launchVideoCall(String packageName, String contact) async {
+    try {
+      // Try platform method first
+      await platform.invokeMethod('launchVideoCall', {
+        'packageName': packageName,
+        'contact': contact,
+      });
+    } on PlatformException catch (e) {
+      debugPrint("Platform method failed: '${e.message}', trying URL launcher");
+      // Fallback to URL launcher for common apps
+      String? url;
+      switch (packageName) {
+        case 'com.google.android.apps.meetings':
+          url = 'https://meet.google.com/new';
+          break;
+        case 'com.whatsapp':
+          url = 'https://wa.me/$contact';
+          break;
+        case 'us.zoom.videomeetings':
+          url = 'https://zoom.us/start/videomeeting';
+          break;
+        default:
+          url = 'tel:$contact';
+      }
+      
+      if (url != null && await canLaunchUrl(Uri.parse(url))) {
+        await launchUrl(Uri.parse(url));
+      } else {
+        debugPrint("Cannot launch video call for $packageName");
+      }
     }
   }
 
@@ -107,10 +142,10 @@ class SmsService {
       final file = File('${directory.path}/backup_${DateTime.now().millisecondsSinceEpoch}.json');
       await file.writeAsString(jsonString);
       
-      print("Backup saved to ${file.path}");
+      debugPrint("Backup saved to ${file.path}");
       // In a real app, we might share this file or let user pick location.
     } catch (e) {
-      print("Failed to export chats: $e");
+      debugPrint("Failed to export chats: $e");
     }
   }
 
@@ -123,12 +158,12 @@ class SmsService {
         String jsonString = await file.readAsString();
         List<dynamic> backup = jsonDecode(jsonString);
         
-        print("Imported ${backup.length} conversations.");
+        debugPrint("Imported ${backup.length} conversations.");
         // Here we would insert into DB. Since we are using system SMS, we can't easily write back.
         // We'll just log it for now.
       }
     } catch (e) {
-      print("Failed to import chats: $e");
+      debugPrint("Failed to import chats: $e");
     }
   }
 
@@ -138,6 +173,39 @@ class SmsService {
       return result.toString();
     } on PlatformException catch (e) {
       return "Error: ${e.message}";
+    }
+  }
+
+  Future<void> saveBackup(Map<String, dynamic> data, String fileName) async {
+    try {
+      final directory = await getExternalStorageDirectory();
+      final downloadsDir = Directory('${directory?.parent.parent.parent.parent.path}/Download');
+      if (!await downloadsDir.exists()) {
+        await downloadsDir.create(recursive: true);
+      }
+      
+      final file = File('${downloadsDir.path}/$fileName');
+      await file.writeAsString(jsonEncode(data));
+    } catch (e) {
+      throw Exception('Failed to save backup: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> loadBackup() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result != null) {
+        File file = File(result.files.single.path!);
+        String jsonString = await file.readAsString();
+        return jsonDecode(jsonString) as Map<String, dynamic>;
+      }
+      return null;
+    } catch (e) {
+      throw Exception('Failed to load backup: $e');
     }
   }
 }

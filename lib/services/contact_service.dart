@@ -1,5 +1,4 @@
 import 'package:flutter_contacts/flutter_contacts.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class ContactService {
   static final ContactService _instance = ContactService._internal();
@@ -22,12 +21,12 @@ class ContactService {
     if (!_isInitialized) return null;
     
     // Normalize input number (remove non-digits)
-    final cleanInput = number.replaceAll(RegExp(r'\D'), '');
+    final cleanInput = _extractDigits(number);
     if (cleanInput.isEmpty) return null;
 
     for (final contact in _contacts) {
       for (final phone in contact.phones) {
-        final cleanPhone = phone.number.replaceAll(RegExp(r'\D'), '');
+        final cleanPhone = _extractDigits(phone.number);
         // Simple matching: check if one ends with the other (to handle country codes)
         if (cleanPhone.endsWith(cleanInput) || cleanInput.endsWith(cleanPhone)) {
           return contact.displayName;
@@ -35,6 +34,10 @@ class ContactService {
       }
     }
     return null;
+  }
+
+  String _extractDigits(String input) {
+    return input.split('').where((char) => '0123456789'.contains(char)).join();
   }
 
   Future<void> refreshContacts() async {

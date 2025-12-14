@@ -1,4 +1,4 @@
-import 'dart:math';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/message_type_indicator.dart'; // For MessageType enum
 

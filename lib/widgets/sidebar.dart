@@ -3,11 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/sms_service.dart';
-import '../services/capability_service.dart';
 import '../screens/settings_screen.dart';
 import '../screens/profile_screen.dart';
 import '../providers/settings_provider.dart';
-import 'message_type_indicator.dart';
+import '../services/haptic_service.dart';
 
 class Sidebar extends StatefulWidget {
   final Function(String?, String)? onConversationSelected;
@@ -38,9 +37,16 @@ class _SidebarState extends State<Sidebar> {
   }
 
   Future<List<Map<String, dynamic>>> _loadConversations() async {
-    if (await Permission.sms.request().isGranted) {
-      return _smsService.getConversations();
-    } else {
+    try {
+      final permission = await Permission.sms.request();
+      if (permission.isGranted) {
+        return await _smsService.getConversations();
+      } else {
+        debugPrint('SMS permission denied');
+        return [];
+      }
+    } catch (e) {
+      debugPrint('Error loading conversations: $e');
       return [];
     }
   }
@@ -54,15 +60,60 @@ class _SidebarState extends State<Sidebar> {
     }
   }
 
+  Widget _getPlatformIcon(String platform) {
+    IconData icon;
+    Color color;
+    
+    switch (platform.toLowerCase()) {
+      case 'google_messages':
+      case 'messages':
+        icon = Icons.message;
+        color = Colors.blue;
+        break;
+      case 'messenger':
+      case 'facebook':
+        icon = Icons.facebook;
+        color = Colors.blue;
+        break;
+      case 'whatsapp':
+        icon = Icons.chat;
+        color = Colors.green;
+        break;
+      case 'telegram':
+        icon = Icons.send;
+        color = Colors.blue;
+        break;
+      case 'signal':
+        icon = Icons.security;
+        color = Colors.blue;
+        break;
+      case 'open_bubbles':
+        icon = Icons.bubble_chart;
+        color = Colors.orange;
+        break;
+      case 'sms':
+      default:
+        icon = Icons.sms;
+        color = Colors.green;
+        break;
+    }
+    
+    return Icon(
+      icon,
+      size: 12,
+      color: color,
+    );
+  }
+
   void _showNewMessageDialog() {
-    final TextEditingController _controller = TextEditingController();
+    final TextEditingController controller = TextEditingController();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF252532),
         title: const Text('New Message', style: TextStyle(color: Colors.white)),
         content: TextField(
-          controller: _controller,
+          controller: controller,
           style: const TextStyle(color: Colors.white),
           decoration: const InputDecoration(
             hintText: 'Enter phone number(s) (comma separated)',
@@ -79,11 +130,11 @@ class _SidebarState extends State<Sidebar> {
           ),
           TextButton(
             onPressed: () {
-              if (_controller.text.isNotEmpty) {
+              if (controller.text.isNotEmpty) {
                 Navigator.pop(context);
                 if (widget.onConversationSelected != null) {
                   // Pass null threadId for new conversation
-                  widget.onConversationSelected!(null, _controller.text);
+                  widget.onConversationSelected!(null, controller.text);
                 }
               }
             },
@@ -99,7 +150,7 @@ class _SidebarState extends State<Sidebar> {
     final settings = Provider.of<SettingsProvider>(context);
 
     return Container(
-      color: Theme.of(context).colorScheme.surface.withOpacity(0.8),
+      color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.8),
       child: SafeArea(
         child: Column(
           children: [
@@ -136,15 +187,36 @@ class _SidebarState extends State<Sidebar> {
                     ),
                   ],
                 ),
-                // Settings Button moved to Top Right
-                IconButton(
-                  icon: const Icon(Icons.settings, size: 24),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                    );
-                  },
+                Row(
+                  children: [
+                    IconButton(
+                      icon: CircleAvatar(
+                        radius: 12,
+                        backgroundColor: const Color(0xFF252532),
+                        backgroundImage: settings.userProfileImagePath.isNotEmpty
+                            ? FileImage(File(settings.userProfileImagePath))
+                            : null,
+                        child: settings.userProfileImagePath.isEmpty
+                            ? const Icon(Icons.person, color: Colors.white, size: 16)
+                            : null,
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const ProfileScreen()),
+                        );
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.settings, size: 24),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -238,25 +310,34 @@ class _SidebarState extends State<Sidebar> {
                         child: const Icon(Icons.delete, color: Colors.white),
                       ),
                       confirmDismiss: (direction) async {
+                        final scaffoldMessenger = ScaffoldMessenger.of(context);
                         if (direction == DismissDirection.startToEnd) {
                           // Archive/Unarchive (Swipe Right)
                           if (_showArchived) {
                             // Unarchive
+                            HapticService().success();
                             await settings.unarchiveThread(threadId);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Conversation unarchived')),
-                            );
+                            if (mounted) {
+                              scaffoldMessenger.showSnackBar(
+                                const SnackBar(content: Text('Conversation unarchived')),
+                              );
+                            }
                           } else {
                             // Archive
+                            HapticService().success();
                             await settings.archiveThread(threadId);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Conversation archived')),
-                            );
+                            if (mounted) {
+                              scaffoldMessenger.showSnackBar(
+                                const SnackBar(content: Text('Conversation archived')),
+                              );
+                            }
                           }
                           // Rebuild the list to reflect the change
-                          setState(() {
-                            _conversationsFuture = _loadConversations(); // Reload to update list
-                          });
+                          if (mounted) {
+                            setState(() {
+                              _conversationsFuture = _loadConversations(); // Reload to update list
+                            });
+                          }
                           return false; // Don't remove from tree immediately, let rebuild handle it
                         } else {
                           // Delete (Swipe Left)
@@ -287,22 +368,41 @@ class _SidebarState extends State<Sidebar> {
                           );
 
                           if (confirm == true) {
+                            HapticService().error();
                             await settings.deleteThread(threadId);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Conversation deleted')),
-                            );
-                            setState(() {
-                              _conversationsFuture = _loadConversations();
-                            });
+                            if (mounted) {
+                              scaffoldMessenger.showSnackBar(
+                                const SnackBar(content: Text('Conversation deleted')),
+                              );
+                              setState(() {
+                                _conversationsFuture = _loadConversations();
+                              });
+                            }
                             return true;
                           }
                           return false;
                         }
                       },
                       child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
-                          child: Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white)),
+                        leading: Stack(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: Theme.of(context).colorScheme.primary,
+                              child: Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white)),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              right: 0,
+                              child: Container(
+                                padding: const EdgeInsets.all(2),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF252532),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: _getPlatformIcon('sms'),
+                              ),
+                            ),
+                          ],
                         ),
                         title: Text(
                           displayName,
@@ -324,7 +424,10 @@ class _SidebarState extends State<Sidebar> {
                           _formatDate(date),
                           style: const TextStyle(color: Colors.grey, fontSize: 12),
                         ),
-                        onTap: () => widget.onConversationSelected?.call(threadId, address),
+                        onTap: () {
+                          HapticService().light();
+                          widget.onConversationSelected?.call(threadId, address);
+                        },
                       ),
                     );
                   },
@@ -332,77 +435,30 @@ class _SidebarState extends State<Sidebar> {
               },
             ),
           ),
-          // User Profile & Bottom Actions
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: Theme.of(context).dividerColor),
-              ),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const ProfileScreen()),
-                        );
-                      },
-                      child: CircleAvatar(
-                        backgroundColor: const Color(0xFF252532),
-                        backgroundImage: settings.userProfileImagePath.isNotEmpty
-                            ? FileImage(File(settings.userProfileImagePath))
-                            : null,
-                        child: settings.userProfileImagePath.isEmpty
-                            ? const Icon(Icons.person, color: Colors.white)
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            settings.userName.isNotEmpty ? settings.userName : 'User',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (settings.userPhone.isNotEmpty)
-                            Text(
-                              settings.userPhone,
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                        ],
-                      ),
-                    ),
-                    // Archive Button
-                    IconButton(
-                      icon: Icon(_showArchived ? Icons.inbox : Icons.archive, size: 24),
-                      tooltip: _showArchived ? 'Show Inbox' : 'Show Archived',
-                      onPressed: () {
-                        setState(() {
-                          _showArchived = !_showArchived;
-                        });
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    // New Message Button
-                    IconButton(
-                      icon: const Icon(Icons.add_circle, size: 32, color: Colors.tealAccent),
-                      onPressed: _showNewMessageDialog,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+
         ],
       ),
+      ),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            mini: true,
+            onPressed: () {
+              setState(() {
+                _showArchived = !_showArchived;
+              });
+            },
+            backgroundColor: Colors.grey[700],
+            child: Icon(_showArchived ? Icons.inbox : Icons.archive, color: Colors.white, size: 20),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton(
+            onPressed: _showNewMessageDialog,
+            backgroundColor: Colors.teal,
+            child: const Icon(Icons.add, color: Colors.white),
+          ),
+        ],
       ),
     );
   }

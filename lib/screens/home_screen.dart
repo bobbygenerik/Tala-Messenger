@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/chat_area.dart';
+import '../widgets/unified_inbox.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -80,16 +81,9 @@ class ChatScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(threadName),
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        elevation: 0,
-      ),
-      body: ChatArea(
-        threadId: threadId,
-        threadName: threadName,
-      ),
+    return ChatArea(
+      threadId: threadId,
+      threadName: threadName,
     );
   }
 }
